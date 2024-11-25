@@ -3,13 +3,13 @@ import scipy as sp
 import matplotlib.pyplot as plt
 import cmasher as cmr
 from matplotlib.animation import FuncAnimation
-from scipy.sparse import diags
+from scipy.sparse import diags_array
 from scipy.sparse.linalg import factorized
 
 class HeatExperiment2D():
     def __init__(self, x_nodes=100, y_nodes=100, length_x=1, length_y=1,
                  terminal_time=3, timestep=0.01, x_thermal_diffusivity=23e-6, y_thermal_diffusivity=23e-6,
-                 boundary_value = 273, initial_value=273, masks=None, cmap='hot'):
+                 boundary_value = 273, boundary_conditions=False, initial_value=273, masks=None, cmap='hot'):
         u = initial_value*np.ones([x_nodes, y_nodes])
         # for i in range (-10, 10):
         #     for j in range(-10, 10):
@@ -26,6 +26,7 @@ class HeatExperiment2D():
         u = u.flatten()
         
         self.cmap = plt.get_cmap(cmap)
+        self.boundary_conditions = boundary_conditions
         self.nx = x_nodes
         self.ny = y_nodes
         self.dim = self.nx*self.ny
@@ -60,12 +61,13 @@ class HeatExperiment2D():
             t -= self.time_step
             
             # boundary conditions #TODO move to init
-            # top bottom
-            sol[0:self.nx] = self.boundary_value
-            sol[-1:-1-self.nx:-1] = self.boundary_value
-            # left right
-            sol[::self.nx] = self.boundary_value
-            sol[self.nx-1::self.nx] = self.boundary_value
+            if self.boundary_conditions:
+                # top bottom
+                sol[0:self.nx] = self.boundary_value
+                sol[-1:-1-self.nx:-1] = self.boundary_value
+                # # left right
+                sol[::self.nx] = self.boundary_value
+                sol[self.nx-1::self.nx] = self.boundary_value
             
             # masks
             self.apply_masks(sol)
@@ -92,30 +94,19 @@ class HeatExperiment2D():
         
         main_diag = np.full(self.dim, C_LHS)
         x_off_diag = np.full(self.dim - 1, -A)
+        x_off_diag[self.nx-1::self.nx] = 0
         y_off_diag = np.full(self.dim - self.nx, -B)
 
         diagonals = [main_diag, x_off_diag, x_off_diag, y_off_diag, y_off_diag]
-        offsets = [0, -1, 1, -self.nx, self.nx]
-        SLHS = diags(diagonals, offsets, shape=(self.dim, self.dim)).tocsc()
+        offsets = [0, 1, -1, self.nx, -self.nx]
+        SLHS = diags_array(diagonals, offsets=offsets).tocsc()
         main_diag = np.full(self.dim, C_RHS)
-        diagonals = [C_RHS, -x_off_diag, -x_off_diag, -y_off_diag, -y_off_diag]
-        SRHS = diags(diagonals, offsets, shape=(self.dim, self.dim)).tocsc()
-        # LHS = np.zeros((self.dim,self.dim))
-        # np.fill_diagonal(LHS, C_LHS)
-        # first_diag = np.arange(self.dim-1)
-        # second_diag = np.arange(self.nx, self.dim)
-        # LHS[first_diag + 1, first_diag] = -A
-        # LHS[second_diag - self.nx, second_diag] = -B
-        # LHS = (LHS + LHS.transpose()) - np.diag(LHS.diagonal())
-        # RHS = LHS.copy()
-        # RHS *= -1
-        # np.fill_diagonal(RHS, C_RHS)
-        # # SLHS = sp.sparse.csr_array(LHS)
-        # SRHS = sp.sparse.csr_array(RHS)
+        diagonals = [main_diag, -x_off_diag, -x_off_diag, -y_off_diag, -y_off_diag]
+        SRHS = diags_array(diagonals, offsets=offsets).tocsc()
         
         return SLHS, SRHS
 
-    def visualize_animated(self):
+    def visualize_animated(self, save=False):
 
         # Define the target number of frames for the animation
         target_frames = 100
@@ -132,7 +123,7 @@ class HeatExperiment2D():
         heatmap = ax.imshow(
             self.solution[0],
             vmin=np.min(self.solution),
-            vmax=np.max(self.solution) + 50,
+            vmax=np.max(self.solution),
             cmap=self.cmap,
         )
         plt.colorbar(heatmap)
@@ -146,31 +137,11 @@ class HeatExperiment2D():
         self.anim = FuncAnimation(
             fig, update, frames=range(target_frames), interval=interval, repeat=True, blit=True
         )
+        if save:
+            self.anim.save('vein.gif', writer='pillow')
 
         # Show animation
         plt.show()
-
-  # Display animation
-
-
-    # def visualize_animated(self, frames=None, interval=1):
-    #     if frames is None:
-    #         frames = len(self.solution)
-            
-    #     fig, ax = plt.subplots(layout='constrained')
-    #     x = np.arange(self.nx)
-    #     y = np.arange(self.ny)
-    #     pcm = ax.pcolormesh(x, y, self.solution[0], shading='gouraud', vmin=np.min(self.solution), vmax=np.max(self.solution)+50, cmap='hot')
-    #     fig.colorbar(pcm)
-    #     ax.set_aspect('equal')
-
-    #     def update(frame):
-    #         pcm.set_array(self.solution[frame].flatten())
-    #         return [pcm]
-
-    #     self.anim = FuncAnimation(fig=fig, func=update, frames=len(self.solution), interval=interval, repeat=True,blit=False)
-            
-    #     plt.show()
         
     def visualize_snapshots(self, timestamps = None):
         if timestamps is None:
@@ -180,6 +151,10 @@ class HeatExperiment2D():
         for pair in axpairs:
             for ax in pair:
                 ax.set_aspect('equal')
-                im = ax.imshow(self.solution[timestamps.pop(0)], vmin=np.min(self.solution), vmax=np.max(self.solution)+50, cmap=self.cmap)
+                # ax.set_xticks(np.linspace(0, 1, 10)*self.lx)
+                # ax.set_xlim(0, self.lx)
+                # ax.set_yticks(np.linspace(0, 1, 10)*self.ly)
+                # ax.set_ylim(0, self.ly)
+                im = ax.imshow(self.solution[timestamps.pop(0)], vmin=np.min(self.solution), vmax=np.max(self.solution), cmap=self.cmap)
                 fig.colorbar(im)
         plt.show()
