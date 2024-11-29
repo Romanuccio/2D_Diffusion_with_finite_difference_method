@@ -6,10 +6,19 @@ from matplotlib.animation import FuncAnimation
 from scipy.sparse import diags_array
 from scipy.sparse.linalg import factorized
 
+
+class CoefficientMask():
+    # for now it's a mask for uniform grids
+    def __init__(self, mask, value):
+        self.mask = mask
+        self.value = value
+
+
 class HeatExperiment2D():
     def __init__(self, x_nodes=100, y_nodes=100, length_x=1, length_y=1,
                  terminal_time=3, timestep=0.01, x_thermal_diffusivity=23e-6, y_thermal_diffusivity=23e-6,
-                 boundary_value = 273, boundary_conditions=False, initial_value=273, masks=None, cmap='hot'):
+                 boundary_value = 273, boundary_conditions=False, initial_value=273, vein_masks=None, vein_function_values=None,
+                 cmap='hot'):
         u = initial_value*np.ones([x_nodes, y_nodes])
         # for i in range (-10, 10):
         #     for j in range(-10, 10):
@@ -40,27 +49,44 @@ class HeatExperiment2D():
         self.time_step = timestep
         self.boundary_value = boundary_value
         self.solution = []
-        if masks is None:
-            self.masks = np.array(np.ones([x_nodes, y_nodes]).flatten())
+        
+        # if there are no provided mask, use identity matrix
+        # TODO could be optimised in calculations? tiny impact probably
+        if vein_masks is None:
+            self.vein_masks = np.array(np.ones([x_nodes, y_nodes]).flatten())
+            self.vein_function_values = np.ones_like(self.vein_masks)
         else:
-            self.masks = np.array([mask.flatten() for mask in masks])
+            self.vein_masks = np.array([mask.flatten() for mask in vein_masks])
+            self.vein_function_values = vein_function_values
             
         self.initial_values = u
-        self.apply_masks(self.initial_values)
+        self.apply_vein_masks(self.initial_values, 0)
+        
+        # BC
+        if self.boundary_conditions:
+            # top bottom
+            self.solution[0][0:self.nx] = self.boundary_value
+            self.solution[0][-1:-1-self.nx:-1] = self.boundary_value
+            # # left right
+            self.solution[0][::self.nx] = self.boundary_value
+            self.solution[0][self.nx-1::self.nx] = self.boundary_value
         
     def run_calculation(self):
         SLHS, SRHS = self.setup_scheme()
         flat_u = self.initial_values
         self.solution = [self.initial_values]
-        t = self.tmax
+        t = 0
+        iteration = 0
         solve = factorized(SLHS)
-        while t > 0:
+        
+        while t < self.tmax:
             b = SRHS@flat_u
-            # sol = sp.sparse.linalg.spsolve(SLHS, b)
             sol = solve(b)
-            t -= self.time_step
+            t += self.time_step
             
-            # boundary conditions #TODO move to init
+            # after calculating condition, set:
+            
+            # boundary conditions
             if self.boundary_conditions:
                 # top bottom
                 sol[0:self.nx] = self.boundary_value
@@ -70,16 +96,21 @@ class HeatExperiment2D():
                 sol[self.nx-1::self.nx] = self.boundary_value
             
             # masks
-            self.apply_masks(sol)
+            # TODO fix this retarded logic
+            iteration += 1
+            if iteration < len(self.vein_function_values):
+                self.apply_vein_masks(sol, iteration)
             
             self.solution.append(sol)
             flat_u = sol
         
         self.solution = [solution.reshape(self.nx, self.ny) for solution in self.solution]
 
-    def apply_masks(self, sol):
-        for mask in self.masks:
-            np.copyto(sol, mask, where=mask != 0)
+    def apply_vein_masks(self, sol, iteration):
+        # sets the value of the solution to the value of the mask
+        #TODO ravel over flatten!
+        for mask in self.vein_masks:
+            np.copyto(sol, self.vein_function_values[iteration]*mask, where=mask != 0)
 
     def setup_scheme(self):
         alpha = self.x_thermal_diffusivity # m^2/s
@@ -92,6 +123,7 @@ class HeatExperiment2D():
 
         # matrices setup
         
+        #TODO stop using central differences on edges...??
         main_diag = np.full(self.dim, C_LHS)
         x_off_diag = np.full(self.dim - 1, -A)
         x_off_diag[self.nx-1::self.nx] = 0
