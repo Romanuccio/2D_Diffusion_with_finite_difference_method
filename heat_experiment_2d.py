@@ -7,13 +7,6 @@ from scipy.sparse import diags_array
 from scipy.sparse.linalg import factorized
 
 
-class CoefficientMask:
-    # for now it's a mask for uniform grids
-    def __init__(self, mask, value):
-        self.mask = mask
-        self.value = value
-
-
 class HeatExperiment2D:
     def __init__(
         self,
@@ -32,17 +25,6 @@ class HeatExperiment2D:
         cmap="hot",
     ):
         u = initial_value * np.ones([x_nodes, y_nodes])
-        # for i in range (-10, 10):
-        #     for j in range(-10, 10):
-        #         u[50+i,50+j] += 600
-
-        # for i in range (-5, 5):
-        #     for j in range(-5, 5):
-        #         u[55+i,55+j] += 1200
-
-        # for i in range (-5, 5):
-        #     for j in range(-5, 5):
-        #         u[65+i,65+j] += 400
 
         u = u.flatten()
 
@@ -142,20 +124,20 @@ class HeatExperiment2D:
             np.copyto(sol, self.vein_function_values[iteration] * mask, where=mask != 0)
 
     def setup_scheme(self):
-        alpha = 23e-6  # m^2/s
-        beta = 23e-6  # m^2/s
-        A = self.time_step * alpha / (self.dx**2)
-        B = self.time_step * beta / (self.dy**2)
-        C = (
-            self.time_step
-            * (alpha * (self.dy**2) + beta * (self.dx**2))
-            / ((self.dx**2) * (self.dy**2))
-        )
-        C_LHS = 2 * (1 + C)
-        C_RHS = 2 * (1 - C)
+        # alpha = 23e-6  # m^2/s
+        # beta = 23e-6  # m^2/s
+        # A = self.time_step * alpha / (self.dx**2)
+        # B = self.time_step * beta / (self.dy**2)
+        # C = (
+        #     self.time_step
+        #     * (alpha * (self.dy**2) + beta * (self.dx**2))
+        #     / ((self.dx**2) * (self.dy**2))
+        # )
+        # C_LHS = 2 * (1 + C)
+        # C_RHS = 2 * (1 - C)
 
         # matrices setup
-        # direction diffusivity coefficients from numerical scheme
+        # directional diffusivity coefficients from numerical scheme
         x_coeff = -self.time_step / (self.dx**2)
         y_coeff = -self.time_step / (self.dy**2)
         coefficients = self.coefficient_matrix
@@ -166,19 +148,20 @@ class HeatExperiment2D:
         coeff_down = y_coeff * coefficients[1:, :]
         coeff_up = y_coeff * coefficients[0:-1, :]
         # TODO if needed expand to non-uniform scheme grid
-        self_coeff = coefficients*self.time_step*(
-            ((self.dy**2) + (self.dx**2))
-            / ((self.dx**2) * (self.dy**2))
+        self_coeff = (
+            coefficients
+            * self.time_step
+            * (((self.dy**2) + (self.dx**2)) / ((self.dx**2) * (self.dy**2)))
         )
         coeff_self_LHS = 2 * (1 + self_coeff)
         coeff_self_RHS = 2 * (1 - self_coeff)
 
         # TODO stop using central differences on edges...??
-        main_diag1 = np.full(self.dim, C_LHS)
-        main_diag2 = np.full(self.dim, C_RHS)
-        x_off_diag1 = np.full(self.dim - 1, -A)
-        x_off_diag1[self.nx - 1 :: self.nx] = 0
-        y_off_diag1 = np.full(self.dim - self.nx, -B)
+        # main_diag1 = np.full(self.dim, C_LHS)
+        # main_diag2 = np.full(self.dim, C_RHS)
+        # x_off_diag1 = np.full(self.dim - 1, -A)
+        # x_off_diag1[self.nx - 1 :: self.nx] = 0
+        # y_off_diag1 = np.full(self.dim - self.nx, -B)
 
         main_diag = coeff_self_LHS.flatten()
         x_off_diag_right = np.delete(coeff_right.flatten(), -1)
@@ -186,14 +169,38 @@ class HeatExperiment2D:
         y_off_diag_up = coeff_up.flatten()
         y_off_diag_down = coeff_down.flatten()
 
-        diagonals = [main_diag, x_off_diag_right, x_off_diag_left, y_off_diag_down, y_off_diag_up]
-        diagonals_old1 = [main_diag1, x_off_diag1, x_off_diag1, y_off_diag1, y_off_diag1]
+        diagonals = [
+            main_diag,
+            x_off_diag_right,
+            x_off_diag_left,
+            y_off_diag_down,
+            y_off_diag_up,
+        ]
+        # diagonals_old1 = [
+        #     main_diag1,
+        #     x_off_diag1,
+        #     x_off_diag1,
+        #     y_off_diag1,
+        #     y_off_diag1,
+        # ]
         offsets = [0, 1, -1, self.nx, -self.nx]
         SLHS = diags_array(diagonals, offsets=offsets).tocsc()
 
         main_diag = coeff_self_RHS.flatten()
-        diagonals = [main_diag, -x_off_diag_right, -x_off_diag_left, -y_off_diag_down, -y_off_diag_up]
-        diagonals_old2 = [main_diag2, -x_off_diag1, -x_off_diag1, -y_off_diag1, -y_off_diag1]
+        diagonals = [
+            main_diag,
+            -x_off_diag_right,
+            -x_off_diag_left,
+            -y_off_diag_down,
+            -y_off_diag_up,
+        ]
+        # diagonals_old2 = [
+        #     main_diag2,
+        #     -x_off_diag1,
+        #     -x_off_diag1,
+        #     -y_off_diag1,
+        #     -y_off_diag1,
+        # ]
         SRHS = diags_array(diagonals, offsets=offsets).tocsc()
 
         return SLHS, SRHS
