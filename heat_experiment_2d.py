@@ -46,7 +46,7 @@ class HeatExperiment2D:
         # time step
         self.time_step = timestep
         # list of solutions
-        self.solution = []
+        self.solution = np.empty(((int)(self.tmax//self.time_step + 2), self.dim))
 
         # denote veins in domain
         # if there are no provided mask, use identity matrix
@@ -73,6 +73,11 @@ class HeatExperiment2D:
 
         # BC
         self.boundary_value = boundary_value
+
+    def run_calculation(self):
+        SLHS, SRHS = self.setup_scheme()
+        flat_u = self.initial_values
+        self.solution[0] = self.initial_values
         if self.boundary_conditions:
             # top bottom
             self.solution[0][0 : self.nx] = self.boundary_value
@@ -80,19 +85,15 @@ class HeatExperiment2D:
             # # left right
             self.solution[0][:: self.nx] = self.boundary_value
             self.solution[0][self.nx - 1 :: self.nx] = self.boundary_value
-
-    def run_calculation(self):
-        SLHS, SRHS = self.setup_scheme()
-        flat_u = self.initial_values
-        self.solution = [self.initial_values]
         t = 0
         iteration = 0
         solve = factorized(SLHS)
 
-        while t < self.tmax:
+        for i in range(1, len(self.solution)):
+        # while t < self.tmax:
             b = SRHS @ flat_u
             sol = solve(b)
-            t += self.time_step
+            # t += self.time_step
 
             # after calculating condition, set:
 
@@ -107,16 +108,15 @@ class HeatExperiment2D:
 
             # masks
             # TODO fix this retarded logic
-            iteration += 1
-            if iteration < len(self.vein_function_values):
-                self.apply_vein_masks(sol, iteration)
+            # if i < len(self.vein_function_values):
+            self.apply_vein_masks(sol, i)
 
-            self.solution.append(sol)
+            self.solution[i] = sol
             flat_u = sol
 
-        self.solution = [
+        self.solution = np.array([
             solution.reshape(self.nx, self.ny) for solution in self.solution
-        ]
+        ])
 
     def apply_vein_masks(self, sol, iteration):
         # sets the value of the solution to the value of the mask
@@ -274,3 +274,7 @@ class HeatExperiment2D:
                 )
                 fig.colorbar(im)
         plt.show()
+    
+    
+    def save_solution(self, filename):
+        np.save(filename, self.solution)
