@@ -46,7 +46,7 @@ class HeatExperiment2D:
         # time step
         self.time_step = timestep
         # list of solutions
-        self.solution = np.empty(((int)(self.tmax//self.time_step + 2), self.dim))
+        self.solution = np.empty(((int)(self.tmax // self.time_step + 2), self.dim))
 
         # denote veins in domain
         # if there are no provided mask, use identity matrix
@@ -90,7 +90,7 @@ class HeatExperiment2D:
         solve = factorized(SLHS)
 
         for i in range(1, len(self.solution)):
-        # while t < self.tmax:
+            # while t < self.tmax:
             b = SRHS @ flat_u
             sol = solve(b)
             # t += self.time_step
@@ -114,9 +114,9 @@ class HeatExperiment2D:
             self.solution[i] = sol
             flat_u = sol
 
-        self.solution = np.array([
-            solution.reshape(self.nx, self.ny) for solution in self.solution
-        ])
+        self.solution = np.array(
+            [solution.reshape(self.nx, self.ny) for solution in self.solution]
+        )
 
     def apply_vein_masks(self, sol, iteration):
         # sets the value of the solution to the value of the mask
@@ -205,7 +205,7 @@ class HeatExperiment2D:
 
         return SLHS, SRHS
 
-    def visualize_animated(self, save=False, display=True):
+    def visualize_animated(self, save=False, display=True, annotate=True):
 
         # Define the target number of frames for the animation
         target_frames = 100
@@ -219,13 +219,35 @@ class HeatExperiment2D:
 
         # Create a figure and axis
         fig, ax = plt.subplots()
-        heatmap = ax.imshow(
-            self.solution[0],
-            vmin=np.min(self.solution),
-            vmax=np.max(self.solution),
-            cmap=self.cmap,
-        )
-        plt.colorbar(heatmap)
+        if not annotate:
+            fig.frameon = False
+
+        if annotate:
+            heatmap = ax.imshow(
+                self.solution[0],
+                vmin=np.min(self.solution),
+                vmax=np.max(self.solution),
+                cmap=self.cmap,
+            )
+            cbar = plt.colorbar(heatmap)
+            cbar.set_label("Concentration")
+        else:
+            heatmap = ax.imshow(
+                self.solution[0],
+                cmap=self.cmap,
+                vmin=np.min(self.solution),
+                vmax=np.max(self.solution),
+                aspect="equal",  # Stretch to fill
+                # interpolation='none', # No smoothing
+                extent=(0, 1, 0, 1),  # Fill the whole axes space
+            )
+            ax.set_xticks([])
+            ax.set_yticks([])
+            fig.tight_layout(pad=0)
+            ax.set_position([0, 0, 1, 1])
+            ax.set_frame_on(False)
+            ax.set_axis_off()
+            ax.set_aspect("equal")
 
         # Update function for animation
         def update(frame):
@@ -233,6 +255,7 @@ class HeatExperiment2D:
             return [heatmap]
 
         # Create animation
+        # if annotate:
         self.anim = FuncAnimation(
             fig,
             update,
@@ -241,8 +264,22 @@ class HeatExperiment2D:
             repeat=True,
             blit=True,
         )
+        # else:
+        #     self.anim = FuncAnimation(
+        #         fig,
+        #         update,
+        #         frames=range(target_frames),
+        #         interval=interval,
+        #         repeat=True,
+        #         blit=False,
+        #     )
+
         if save:
-            self.anim.save("vein.gif", writer="pillow")
+            self.anim.save(
+                "vein.gif",
+                writer="pillow",
+                savefig_kwargs={"bbox_inches": "tight", "pad_inches": 0},
+            )
 
         # Show animation
         # TODO bool switching doesn't work
@@ -274,7 +311,6 @@ class HeatExperiment2D:
                 )
                 fig.colorbar(im)
         plt.show()
-    
-    
+
     def save_solution(self, filename):
         np.save(filename, self.solution)
